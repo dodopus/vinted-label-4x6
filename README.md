@@ -1,8 +1,10 @@
 # Vinted Label Cropper
 
-A tiny static web app that crops a Vinted **InPost A4** shipping sheet down to
-just the **4×6 label** and rotates it upright — ready to print.
+A tiny static web app that crops a Vinted A4 shipping sheet down to just the
+**4×6 label** and rotates it upright — ready to print.
 
+- **Carrier-agnostic.** Works across formats (InPost, Evri, …) by auto-detecting
+  the label rather than hardcoding one carrier's position — no per-carrier table.
 - **100% in-browser.** Your label PDF never leaves your device (no server, no upload).
 - **Vector-perfect.** It rewrites the PDF page box and rotation rather than
   rasterizing, so barcodes and text stay razor-sharp at any size.
@@ -24,12 +26,20 @@ Open `index.html` in any browser, or visit the deployed site, then drag in
 
 No build step — it's plain static files.
 
+## How detection works
+
+Every carrier draws the label as a form XObject sized ~4×6 (100×150mm) on an
+otherwise A4 sheet. `findLabelBox()` in `index.html` walks the page content
+stream, tracks the CTM through `q`/`Q` + `cm`, and computes the page-space
+rectangle of each placed XObject. `labelScore()` keeps the one whose dimensions
+match a 4×6 label and rejects the A4-sized background. The app then crops to that
+box and rotates 270° only if the box is landscape.
+
 ## Tuning
 
-Everything is in the `<script>` block of `index.html`:
+In the `<script>` block of `index.html`:
 
-- `BOX` — the label's position on the A4 template, in PDF points. Mapped once;
-  the Vinted template is fixed so it never needs changing.
-- `PAD` — margin (pt) around the label so nothing clips. Bump it if a future
-  label ever gets cut off.
-- `ROTATE` — `270` stands the sideways label upright (verified).
+- `PAD` — margin (pt) around the label so the border stroke never clips. Bump it
+  if a future label ever gets cut off.
+- `labelScore()` — the size window that decides what counts as a 4×6 label. Widen
+  the bounds if a new carrier uses a slightly different label size.
