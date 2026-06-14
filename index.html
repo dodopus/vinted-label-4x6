@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vinted Label Cropper</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #181b22;
+    --line: #272b34;
+    --text: #e7e9ee;
+    --muted: #9aa1ad;
+    --accent: #09b1ba;      /* Vinted teal */
+    --accent-2: #0a8f96;
+    --ok: #3ecf8e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 20px;
+  }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 28px; text-align: center; max-width: 460px; }
+  .card {
+    width: 100%; max-width: 520px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 16px; padding: 28px;
+  }
+  #drop {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border: 2px dashed var(--line); border-radius: 12px; padding: 44px 20px; min-height: 200px;
+    text-align: center; cursor: pointer; transition: .15s; color: var(--muted);
+  }
+  #drop.hover { border-color: var(--accent); background: rgba(9,177,186,.06); color: var(--text); }
+  #drop strong { color: var(--text); }
+  .icon { font-size: 2.4rem; display: block; margin-bottom: 10px; }
+  input[type=file] { display: none; }
+  #list { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .row {
+    display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+    background: #11141a; border: 1px solid var(--line); border-radius: 10px;
+  }
+  .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .92rem; }
+  .row .status { font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .row .status.ok { color: var(--ok); }
+  .row .status.err { color: #ff6b6b; }
+  a.dl {
+    text-decoration: none; background: var(--accent); color: #042; font-weight: 600;
+    padding: 7px 12px; border-radius: 8px; font-size: .82rem; white-space: nowrap;
+  }
+  a.dl:hover { background: var(--accent-2); }
+  .foot { color: var(--muted); font-size: .8rem; margin-top: 22px; text-align: center; }
+  .lock { color: var(--ok); }
+</style>
+</head>
+<body>
+  <h1>📦 Vinted Label Cropper</h1>
+  <p class="sub">Drop your Vinted InPost A4 PDF below. It’s cropped to the 4×6 label and rotated upright — ready to print. Nothing is uploaded; it all happens in your browser.</p>
+
+  <div class="card">
+    <label id="drop" for="file">
+      <span class="icon">⬆️</span>
+      <strong>Click to choose</strong> or drag PDFs here
+    </label>
+    <input type="file" id="file" accept="application/pdf,.pdf" multiple />
+    <div id="list"></div>
+  </div>
+
+  <p class="foot"><span class="lock">🔒</span> 100% local — your label never leaves this device.</p>
+
+<script src="./pdf-lib.min.js"></script>
+<script>
+const { PDFDocument, degrees } = PDFLib;
+
+// Label content box on Vinted's InPost A4 template, in PDF points (bottom-left origin).
+const BOX = { x0: 103.0, y0: 12.0, x1: 505.7, y1: 304.6 };
+const PAD = 6;        // margin so nothing clips
+const ROTATE = 270;   // degrees clockwise to stand the label upright
+
+const drop = document.getElementById('drop');
+const input = document.getElementById('file');
+const list = document.getElementById('list');
+
+['dragenter','dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('hover'); }));
+['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('hover'); }));
+drop.addEventListener('drop', ev => handleFiles(ev.dataTransfer.files));
+input.addEventListener('change', () => handleFiles(input.files));
+
+function handleFiles(files) {
+  [...files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'))
+            .forEach(processFile);
+}
+
+function addRow(name) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = `<span class="name">${name}</span><span class="status">working…</span>`;
+  list.appendChild(row);
+  return row;
+}
+
+async function processFile(file) {
+  const row = addRow(file.name);
+  const status = row.querySelector('.status');
+  try {
+    const srcBytes = await file.arrayBuffer();
+    const src = await PDFDocument.load(srcBytes);
+    const out = await PDFDocument.create();
+    const [page] = await out.copyPages(src, [0]);
+    out.addPage(page);
+
+    // Clamp the padded crop box to the page bounds.
+    const mb = page.getMediaBox();
+    const x0 = Math.max(mb.x,            BOX.x0 - PAD);
+    const y0 = Math.max(mb.y,            BOX.y0 - PAD);
+    const x1 = Math.min(mb.x + mb.width, BOX.x1 + PAD);
+    const y1 = Math.min(mb.y + mb.height,BOX.y1 + PAD);
+
+    page.setMediaBox(x0, y0, x1 - x0, y1 - y0);
+    page.setCropBox(x0, y0, x1 - x0, y1 - y0);
+    page.setRotation(degrees(ROTATE));
+
+    const outBytes = await out.save();
+    const blob = new Blob([outBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const outName = file.name.replace(/\.pdf$/i, '') + '_label.pdf';
+
+    status.textContent = '4×6 ready';
+    status.className = 'status ok';
+    const a = document.createElement('a');
+    a.className = 'dl'; a.href = url; a.download = outName; a.textContent = 'Download';
+    row.appendChild(a);
+    a.click(); // auto-save
+  } catch (err) {
+    console.error(err);
+    status.textContent = 'failed — not a Vinted label?';
+    status.className = 'status err';
+  }
+}
+</script>
+</body>
+</html>
